@@ -14,10 +14,7 @@ edd_prefix <- #Enter the file name prefix
 pdd_filepath <- #Enter the base file path
 pdd_prefix <- #Enter the file name prefix
 
-years <- #select years of interest
-
-ooi <- "resp" #define ooi
-ooi_codes <- resp_codes #define ooi ICD-9 and -10 codes
+years <- 2013:2019 #select years of interest
 
 # Example ICD-10 and -9 codes
 resp_codes <- c("J00", "J01", "J02", "J03", "J04", "J05", "J06",
@@ -59,6 +56,9 @@ psych_codes <- c("F20","F21","F23","F25","F28","F29","F10","F11",
                  "F31","F32","F33","F06",
                  295, 298, 291, 292, 296, 290, 293)
 
+ooi <- "resp" #define ooi
+ooi_codes <- resp_codes #define ooi ICD-9 and -10 codes
+
 # Initialize an empty list to store data for each year
 data_list <- list()
 
@@ -77,14 +77,62 @@ for (year in years) {
   # Rename columns
   setnames(ed_data, old = c("eth", "faczip", "agecatserv"), new = c("ethncty", "hplzip", "agecat"), skip_absent=TRUE)
   colnames(ha_data)[colnames(ha_data) == "agecatdsch"] <- "agecat"
-  ed_data$diag_p <- ed_data$dx_prin
+  if (year!=2019) { ## in 2019 ED data, dx_prin is empty and information is stored in diag_p
+    ed_data$diag_p <- ed_data$dx_prin
+  }
+  
+  ## change race_grp in 2019 to the same as other years
+  ## in other years (unmarked means for ED):
+  ## 1-white; 2-black; 3-hispanic; 
+  ## 4-Asian / Pacific Islander;
+  ## 5-Native American / American Indian; In PDD, 5-Native American / Eskimo / Aleut;
+  ## 6-other; 
+  ## 0-unknown; In PDD, 0-unknown/invalid/Blank.
+  ## the finer categorization started in 2019:
+  ## 1-white; 2-black; 3-hispanic; 
+  ## 4-Asian; 5- American Indian/Alaska Native;
+  ## 6-Native Hawaiian or Other Pacific Islander; 
+  ## 7-multiracial; 8-other;
+  ## 0-unkown; "-"- invalid; Blank-missing.
+  ## Final:
+  ## 1-white; 2-black; 3-hispanic; 
+  ## 4-Asian / Pacific Islander / Native Hawaiian;
+  ## 5-Native American / American Indian/Alaska Native/ Eskimo / Aleut;
+  ## 6-other + multiracial;
+  ## 99-unknown, invalid, missing; 
+  ed_data$race_grp <- ifelse(ed_data$race_grp %in% c("", "-", NA, 0), 99, ed_data$race_grp)
+  ha_data$race_grp <- ifelse(ha_data$race_grp %in% c("", "-", NA, 0), 99, ha_data$race_grp)
+  if (year==2019) {
+    ed_data$race_grp <- ifelse(ed_data$race_grp %in% c(4, 6), 4, ed_data$race_grp)
+    ed_data$race_grp <- ifelse(ed_data$race_grp %in% c(7, 8), 6, ed_data$race_grp)
+    
+    ha_data$race_grp <- ifelse(ha_data$race_grp %in% c(4, 6), 4, ha_data$race_grp)
+    ha_data$race_grp <- ifelse(ha_data$race_grp %in% c(7, 8), 6, ha_data$race_grp)
+  }
+
+  ## clean type of admission for PDD--categories different for < 2017 and >= 2017
+  ## Final: 99-unknown, invalid, missing. unavailble; 1, scheduled, elective;
+  ## 2, unscheduled, emergency, urgent, including trauma; 3, newborn, infant;
+  if (list$year[i] < 2017) { # 1-scheduled; 2-unscheduled, 3-infant, 4-unkown, 0-invalid/blank
+    ha_data$admtype <- ifelse(ha_data$admtype %in% c(0, 4, "", "-", NA), 99, ha_data$admtype)
+  } else { # 1-emergency, 2-urgent, 3-elective, 4-newborn, 5-trauma, 9-information not available, "-"-invalid, blank-missing.
+    loc <- grep("admtype", names(ha_data))
+    names(ha_data)[loc] <- "admtype"
+    ha_data$admtype <- ifelse(ha_data$admtype %in% c(0, 9, "", "-", NA), 99, ha_data$admtype)
+    ha_data$admtype <- ifelse(ha_data$admtype %in% c(1, 2, 5), 2, ha_data$admtype)
+    ha_data$admtype <- ifelse(ha_data$admtype==3, 1, ha_data$admtype)
+    ha_data$admtype <- ifelse(ha_data$admtype==4, 3, ha_data$admtype)
+  }
+  ha_data <- ha_data[ha_data$admtype==2, ] ## only focus on unscheduled, emergency, urgent, including trauma
   
   ed_data$serv_dt <- as.Date(ed_data$serv_dt, "%m/%d/%Y")
   ha_data$serv_dt <- as.Date(ha_data$admtdate, "%m/%d/%Y")
   
   # Subset columns you need
   keep <- c("rln", "patzip", "hplzip", "serv_dt", "agecat", 
-            "sex", "ethncty", "race_grp","diag_p", "enc_type")
+            "sex", 
+            # "ethncty", ## the eth/ethncty category differs in 2013-2018 and 2019 for PDD. I did not clean this variable thus removing it for now
+            "race_grp","diag_p", "enc_type")
   
   ed_sub <- ed_data[, keep, with = FALSE]
   ha_sub <- ha_data[, keep, with = FALSE]
@@ -119,7 +167,9 @@ for (year in years) {
   # Merge control dates back to retain covariate data
   controls <- data_s[controls, on = c("cc_id", "rln", "patzip"), nomatch = 0]
   controls <- data_s[controls, 
-                             .(cc_id, rln, patzip, hplzip, ctrl_dt, agecat, sex, ethncty, race_grp, 
+                             .(cc_id, rln, patzip, hplzip, ctrl_dt, agecat, sex, 
+                               # ethncty, 
+                               race_grp, 
                                diag_p, enc_type), 
                              on = c("cc_id", "rln", "patzip")]
   setnames(controls, "ctrl_dt", "serv_dt")
@@ -127,7 +177,9 @@ for (year in years) {
   # Add case indicator (controls are 0, cases are 1)
   controls[, case_indicator := 0]
   
-  cases <- data_s[, .(cc_id, rln, patzip, hplzip, serv_dt, agecat, sex, ethncty, race_grp, 
+  cases <- data_s[, .(cc_id, rln, patzip, hplzip, serv_dt, agecat, sex, 
+                      # ethncty, 
+                      race_grp, 
                       diag_p, enc_type)]
   cases[, case_indicator := 1]
   
