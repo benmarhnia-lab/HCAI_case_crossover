@@ -113,7 +113,7 @@ for (year in years) {
   ## clean type of admission for PDD--categories different for < 2017 and >= 2017
   ## Final: 99-unknown, invalid, missing. unavailble; 1, scheduled, elective;
   ## 2, unscheduled, emergency, urgent, including trauma; 3, newborn, infant;
-  if (list$year[i] < 2017) { # 1-scheduled; 2-unscheduled, 3-infant, 4-unkown, 0-invalid/blank
+  if (year < 2017) { # 1-scheduled; 2-unscheduled, 3-infant, 4-unkown, 0-invalid/blank
     ha_data$admtype <- ifelse(ha_data$admtype %in% c(0, 4, "", "-", NA), 99, ha_data$admtype)
   } else { # 1-emergency, 2-urgent, 3-elective, 4-newborn, 5-trauma, 9-information not available, "-"-invalid, blank-missing.
     loc <- grep("admtype", names(ha_data))
